@@ -37,7 +37,6 @@ class HomeScreen extends StatelessWidget {
     }
   }
   void _pickAndViewPDF(BuildContext context) async {
-    print("pressed");
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf'],
@@ -45,15 +44,12 @@ class HomeScreen extends StatelessWidget {
 
     if (result != null && result.files.single.path != null) {
       File file = File(result.files.single.path!);
-
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => FilePdfViewer(file: file),
         ),
       );
-    } else {
-      // User canceled the picker
     }
   }
   @override
