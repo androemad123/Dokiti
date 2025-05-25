@@ -8,7 +8,7 @@ class MyTextStyle {
       fontSize: 16.sp,
       fontFamily: "Poppins",
       fontWeight: FontWeight.w600,
-      color: Theme.of(context).colorScheme.primary, // Dynamic theme color
+      color: Theme.of(context).colorScheme.onSurface, // Dynamic theme color
     );
   }
 }

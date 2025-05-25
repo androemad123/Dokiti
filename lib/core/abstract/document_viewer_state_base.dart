@@ -1,11 +1,15 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart' as sf;
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 
+import '../../features/home/ui/data/book_mark_repository.dart';
+import '../../features/home/ui/data/local_pdf_viewer.dart';
+import '../models/pdf_bookmark.dart';
+
 abstract class BasePdfViewer extends StatefulWidget {
   final String? title;
-
   const BasePdfViewer({
     Key? key,
     this.title,
@@ -21,14 +25,21 @@ abstract class BasePdfViewer extends StatefulWidget {
 abstract class BasePdfViewerState<T extends BasePdfViewer> extends State<T> {
   late final PdfViewerController _pdfViewerController;
   late final TextEditingController _searchController;
+  late final TextEditingController _bookmarkNameController;
+  late final TextEditingController _bookmarkNotesController;
+  final BookmarkRepository _bookmarkRepository = BookmarkRepository();
+
   PdfTextSearchResult? _searchResult;
+  List<CustomPdfBookmark> _bookmarks = [];
   String _customTitle = "PDF Viewer";
   bool _isSearching = false;
   bool _isDisposed = false;
   bool _hasSearchResult = false;
   bool _isSearchable = true;
-  String? _searchError;
+  bool _showBookmarksPanel = false;
+  bool _isAddingBookmark = false;
   bool _isLoading = true;
+  String? _searchError;
   Uint8List? _pdfData;
 
   @override
@@ -36,7 +47,10 @@ abstract class BasePdfViewerState<T extends BasePdfViewer> extends State<T> {
     super.initState();
     _pdfViewerController = PdfViewerController();
     _searchController = TextEditingController();
+    _bookmarkNameController = TextEditingController();
+    _bookmarkNotesController = TextEditingController();
     _loadPdfAndInitialize();
+    _loadBookmarks();
   }
 
   Future<void> _loadPdfAndInitialize() async {
@@ -50,12 +64,27 @@ abstract class BasePdfViewerState<T extends BasePdfViewer> extends State<T> {
       });
 
       _initializeTitle();
+
     } catch (e) {
       if (_isDisposed) return;
       setState(() {
         _isLoading = false;
         _searchError = 'Failed to load PDF: ${e.toString()}';
       });
+    }
+  }
+
+  Future<void> _loadBookmarks() async {
+    String identifier;
+    if (widget is FilePdfViewer) {
+      identifier = (widget as FilePdfViewer).file.path; // Match storage key
+    } else {
+      identifier = widget.getDefaultTitle(); // Fallback for other types
+    }
+
+    _bookmarks = await _bookmarkRepository.getBookmarksForPdf(identifier);
+    if (_isSafeToUpdate()) {
+      setState(() {});
     }
   }
 
@@ -84,14 +113,16 @@ abstract class BasePdfViewerState<T extends BasePdfViewer> extends State<T> {
     _cancelSearch();
     _pdfViewerController.dispose();
     _searchController.dispose();
+    _bookmarkNameController.dispose();
+    _bookmarkNotesController.dispose();
     super.dispose();
   }
 
   bool _isSafeToUpdate() => !_isDisposed && mounted;
 
-  Future<void> _checkIfSearchable(PdfDocument document) async {
+  Future<void> _checkIfSearchable(sf.PdfDocument document) async {
     try {
-      final text = await PdfTextExtractor(document).extractText(startPageIndex: 0, endPageIndex: 0);
+      final text = await sf.PdfTextExtractor(document).extractText(startPageIndex: 0, endPageIndex: 0);
       if (_isSafeToUpdate()) {
         setState(() {
           _isSearchable = text.trim().isNotEmpty;
@@ -189,6 +220,72 @@ abstract class BasePdfViewerState<T extends BasePdfViewer> extends State<T> {
     }
   }
 
+  Future<void> _addCurrentPageBookmark() async {
+    final currentPage = _pdfViewerController.pageNumber;
+
+    setState(() => _isAddingBookmark = true);
+
+    try {
+      String? previewText;
+      try {
+        final document = sf.PdfDocument(inputBytes: await widget.getPdfBytes());
+        final text = await sf.PdfTextExtractor(document)
+            .extractText(startPageIndex: currentPage - 1, endPageIndex: currentPage - 1);
+        previewText = text.length > 100 ? '${text.substring(0, 100)}...' : text;
+      } catch (e) {
+        debugPrint('Could not extract preview text: $e');
+      }
+
+      // Get the actual file path from the widget (for FilePdfViewer)
+      String filePath;
+      if (widget is FilePdfViewer) {
+        filePath = (widget as FilePdfViewer).file.path;
+      } else {
+        // Handle other cases (like network PDFs) if needed
+        throw Exception('Only file-based bookmarks are supported');
+      }
+
+      final bookmark = CustomPdfBookmark(
+        filePath: filePath, // Store the actual file path
+        name: _bookmarkNameController.text.trim().isEmpty
+            ? 'Page ${currentPage + 1}'
+            : _bookmarkNameController.text.trim(),
+        pageNumber: currentPage + 1,
+        notes: _bookmarkNotesController.text.trim().isEmpty ? null : _bookmarkNotesController.text.trim(),
+        previewText: previewText,
+      );
+
+      await _bookmarkRepository.addBookmark(bookmark);
+      await _loadBookmarks();
+    } finally {
+      if (_isSafeToUpdate()) {
+        setState(() {
+          _isAddingBookmark = false;
+          _bookmarkNameController.clear();
+          _bookmarkNotesController.clear();
+        });
+      }
+    }
+  }
+  Future<void> _removeBookmark(CustomPdfBookmark bookmark) async {
+    await _bookmarkRepository.removeBookmark(bookmark);
+    await _loadBookmarks();
+  }
+
+  void _navigateToBookmark(CustomPdfBookmark bookmark) {
+    _pdfViewerController.jumpToPage(bookmark.pageNumber - 1);
+    setState(() => _showBookmarksPanel = false);
+  }
+
+  void _showAddBookmarkDialog() {
+    final currentPage = _pdfViewerController.pageNumber ?? 0;
+    _bookmarkNameController.text = 'Page ${currentPage + 1}';
+    _bookmarkNotesController.clear();
+    setState(() => _isAddingBookmark = true);
+  }
+  void jumpToPage(int pageNumber) {
+    _pdfViewerController.jumpToPage(pageNumber);
+  }
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -196,25 +293,36 @@ abstract class BasePdfViewerState<T extends BasePdfViewer> extends State<T> {
         title: Text(_customTitle),
         actions: [
           IconButton(
+            icon: const Icon(Icons.bookmark),
+            onPressed: _pdfData != null
+                ? () => setState(() => _showBookmarksPanel = !_showBookmarksPanel)
+                : null,
+          ),
+          IconButton(
             icon: const Icon(Icons.search),
             onPressed: _pdfData != null ? () => _showSearchDialog(context) : null,
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _pdfData == null
-          ? const SizedBox.shrink()
-          : Stack(
+      body: Stack(
         children: [
-          SfPdfViewer.memory(
+          _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _pdfData == null
+              ? const SizedBox.shrink()
+              : SfPdfViewer.memory(
             _pdfData!,
             controller: _pdfViewerController,
             key: ValueKey(_customTitle),
-            onDocumentLoaded: (PdfDocumentLoadedDetails details) {
+            onDocumentLoaded: (details) {
               _checkIfSearchable(details.document);
             },
           ),
+
+          if (_showBookmarksPanel) _buildBookmarksPanel(),
+
+          if (_isAddingBookmark) _buildAddBookmarkDialog(),
+
           if (_searchError != null)
             Positioned(
               bottom: 20,
@@ -238,6 +346,144 @@ abstract class BasePdfViewerState<T extends BasePdfViewer> extends State<T> {
             ),
           if (_isSearching || (_searchResult != null)) _buildSearchResultIndicator(),
         ],
+      ),
+      floatingActionButton: _pdfData != null && !_showBookmarksPanel
+          ? FloatingActionButton(
+        child: const Icon(Icons.bookmark_add),
+        onPressed: () => _showAddBookmarkDialog(),
+      )
+          : null,
+    );
+  }
+
+  Widget _buildAddBookmarkDialog() {
+    return Center(
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          width: MediaQuery.of(context).size.width * 0.8,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Add Bookmark',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: _bookmarkNameController,
+                decoration: const InputDecoration(
+                  labelText: 'Bookmark Name',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _bookmarkNotesController,
+                decoration: const InputDecoration(
+                  labelText: 'Notes (optional)',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 3,
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => setState(() => _isAddingBookmark = false),
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 10),
+                  ElevatedButton(
+                    onPressed: _addCurrentPageBookmark,
+                    child: const Text('Save'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBookmarksPanel() {
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.7,
+        color: Colors.white,
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Bookmarks',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => setState(() => _showBookmarksPanel = false),
+                ),
+              ],
+            ),
+            const Divider(),
+            Expanded(
+              child: _bookmarks.isEmpty
+                  ? const Center(
+                child: Text('No bookmarks yet'),
+              )
+                  : ListView.builder(
+                itemCount: _bookmarks.length,
+                itemBuilder: (context, index) {
+                  final bookmark = _bookmarks[index];
+                  return ListTile(
+                    title: Text(bookmark.name),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Page ${bookmark.pageNumber}'),
+                        if (bookmark.previewText != null)
+                          Text(
+                            bookmark.previewText!,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        if (bookmark.notes != null)
+                          Text(
+                            bookmark.notes!,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontStyle: FontStyle.italic,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
+                    ),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete, color: Colors.red),
+                      onPressed: () => _removeBookmark(bookmark),
+                    ),
+                    onTap: () => _navigateToBookmark(bookmark),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -312,7 +558,17 @@ abstract class BasePdfViewerState<T extends BasePdfViewer> extends State<T> {
       ),
     );
   }
+  // In BasePdfViewerState
+  Future<void> loadPdfData(Uint8List data) async {
+    if (_isDisposed) return;
 
+    setState(() {
+      _pdfData = data;
+      _isLoading = false;
+    });
+
+    _initializeTitle();
+  }
   void _showSearchDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -355,5 +611,4 @@ abstract class BasePdfViewerState<T extends BasePdfViewer> extends State<T> {
         ],
       ),
     );
-  }
-}
+  }}

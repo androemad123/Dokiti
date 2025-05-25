@@ -110,15 +110,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ? Column(
                   children: [
                     AppTextBtn(
-                      backGroundColor: Colors.white,
-                      borderColor: Theme.of(context).colorScheme.primary,
+                      backgroundColor: Colors.white,
+                      borderColor: Theme.of(context).textTheme.bodyMedium?.color,
                       buttonHeight: 56.h,
                       buttonWidth: 300.w,
                       buttonText: "Start",
                       textStyle: MyTextStyle.font16SemiBold(context),
                       onPressed: () async {
                         Navigator.pushReplacementNamed(
-                            context, Routes.homeScreenState);
+                            context, Routes.loginScreen);
                         final prefs =
                         await SharedPreferences.getInstance();
                         prefs.setBool('showHome', true);
@@ -127,7 +127,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ),
                     SizedBox(height: 20.h),
                     AppTextBtn(
-                      backGroundColor: Theme.of(context).colorScheme.secondary,
+                      backgroundColor: Theme.of(context).colorScheme.secondary,
                       buttonHeight: 56.h,
                       buttonWidth: 300.w,
                       buttonText: "switch",
@@ -145,18 +145,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     : Column(
                   children: [
                     AppTextBtn(
-                      backGroundColor: Colors.white,
+                      backgroundColor: Colors.white,
                       buttonHeight: 56.h,
                       buttonWidth: 300.w,
                       buttonText: "Next",
-                      textStyle: MyTextStyle.font16SemiBold(context),
+                      textStyle: TextStyle(fontSize: 16,color: Theme.of(context).highlightColor),
                       onPressed: () => controller.nextPage(
                           curve: Curves.easeInOut,
                           duration: const Duration(milliseconds: 300)),
                     ),
                     SizedBox(height: 20.h),
                     AppTextBtn(
-                      backGroundColor: Theme.of(context).colorScheme.secondary,
+                      backgroundColor: Theme.of(context).colorScheme.secondary,
                       buttonHeight: 56.h,
                       buttonWidth: 300.w,
                       buttonText: "Skip",

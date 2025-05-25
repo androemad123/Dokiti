@@ -1,24 +1,72 @@
 import 'dart:io';
-
-import 'package:alhy_momken_task/core/theming/styles.dart';
 import 'package:alhy_momken_task/core/widgets/app_text_field.dart';
 import 'package:alhy_momken_task/features/home/ui/widgets/category_item.dart';
-import 'package:alhy_momken_task/features/home/ui/widgets/collection_card.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
 
-import '../../../../core/theming/theme_provider.dart';
-import '../../../../core/widgets/app_text_btn.dart';
+import '../../../../core/models/collection_model.dart';
+import '../../../../core/models/pdf_bookmark.dart';
+import '../../../../core/repositories/collection_repository.dart';
+import '../../../../core/widgets/recent_bookmark_item.dart';
+import '../../../../core/widgets/recent_folder_item.dart';
+import '../data/book_mark_repository.dart';
 import '../data/document_viewer.dart';
 import '../data/local_pdf_viewer.dart';
 import 'document_alert_dialog.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  late Future<List<CustomPdfBookmark>> _recentBookmarksFuture;
+  bool _isLoading = true;
+  String? _errorMessage;
+  @override
+  void initState() {
+    super.initState();
+    _recentBookmarksFuture = _loadRecentBookmarks();
+    print(_recentBookmarksFuture);
+    _loadBookmarks();
+  }
+
+  Future<List<CustomPdfBookmark>> _loadRecentBookmarks() async {
+    final repository = Provider.of<BookmarkRepository>(context, listen: false);
+    final allBookmarks = await repository.getAllBookmarks();
+    // Sort by date (assuming you have a date field in CustomPdfBookmark)
+    allBookmarks.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return allBookmarks.take(3).toList(); // Get 3 most recent
+  }
+  Future<void> _loadBookmarks() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final repository = Provider.of<BookmarkRepository>(context, listen: false);
+      final allBookmarks = await repository.getAllBookmarks();
+
+      // Sort by date (newest first)
+      allBookmarks.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+      setState(() {
+        _recentBookmarksFuture = Future.value(allBookmarks.take(3).toList());
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Failed to load bookmarks: ${e.toString()}';
+        _isLoading = false;
+      });
+      print('Error loading bookmarks: $e');
+    }
+  }
   void _showUrlInputDialog(BuildContext context) async {
     final result = await showDialog<Map<String, String>>(
       context: context,
@@ -36,6 +84,7 @@ class HomeScreen extends StatelessWidget {
       );
     }
   }
+
   void _pickAndViewPDF(BuildContext context) async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -52,16 +101,13 @@ class HomeScreen extends StatelessWidget {
       );
     }
   }
+
   @override
   Widget build(BuildContext context) {
     final _searchController = TextEditingController();
-    final List<Map<String, dynamic>> collections = [
-      {'title': 'Inspiration', 'items': 32, 'icon': Icons.emoji_emotions},
-      {'title': 'Catboosters', 'items': 163, 'icon': Icons.pets},
-      {'title': 'Brain Foods', 'items': 26, 'icon': Icons.restaurant},
-      {'title': 'Brain Foods', 'items': 26, 'icon': Icons.restaurant},
-      {'title': 'Brain Foods', 'items': 26, 'icon': Icons.restaurant},
-    ];
+    final collectionRepository = Provider.of<CollectionRepository>(context);
+    final List<PdfCollection> recentCollections = collectionRepository.getAllCollections().take(3).toList();
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -83,39 +129,53 @@ class HomeScreen extends StatelessWidget {
                 isSecuredField: false,
                 prefixIcon: Icons.search_outlined,
               ),
-              AppTextBtn(
-                backGroundColor: Theme.of(context).colorScheme.secondary,
-                buttonHeight: 56.h,
-                buttonWidth: 300.w,
-                buttonText: "Switch",
-                textStyle: MyTextStyle.font16SemiBold(context),
-                onPressed: () {
-                  final themeProvider =
-                      Provider.of<ThemeProvider>(context, listen: false);
-                  themeProvider
-                      .toggleTheme(themeProvider.themeMode != ThemeMode.dark);
-                },
-                borderRadius: 10,
-              ),
-              SizedBox(
-                height: 20.h,
-              ),
+              SizedBox(height: 20.h),
+
+              // Recent Folders Section
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    "My collections",
+                    "Recent Folders",
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                   ),
                   GestureDetector(
-                    onTap: () {},
+                    onTap: () {
+                      // Navigate to all collections screen
+                    },
                     child: Text("See All >"),
                   )
                 ],
               ),
+              SizedBox(height: 12.h),
               SizedBox(
-                height: 12.h,
+                height: 120.h,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: recentCollections.length,
+                  itemBuilder: (context, index) {
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 12),
+                      child: RecentFolderItem(
+                        collection: recentCollections[index],
+                      ),
+                    );
+                  },
+                ),
               ),
+              SizedBox(height: 24.h),
+
+              // Quick Access Categories
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    "Quick Access",
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+              SizedBox(height: 12.h),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
@@ -124,7 +184,7 @@ class HomeScreen extends StatelessWidget {
                     label: "Links",
                     backgroundColor: Theme.of(context).cardColor,
                     iconColor: Color(0xFF9C27B0),
-                    onTap:  () => _showUrlInputDialog(context),
+                    onTap: () => _showUrlInputDialog(context),
                   ),
                   SizedBox(width: 16),
                   CategoryItem(
@@ -140,34 +200,86 @@ class HomeScreen extends StatelessWidget {
                     label: "Documents",
                     backgroundColor: Theme.of(context).highlightColor,
                     iconColor: Color(0xFFE57373),
-                    onTap: () =>_pickAndViewPDF(context),
+                    onTap: () => _pickAndViewPDF(context),
                   ),
                 ],
               ),
-              SizedBox(height: 10.h),
-              SizedBox(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: List.generate(
-                      collections.length,
-                      (index) => Padding(
-                        padding: const EdgeInsets.only(right: 10),
-                        // Space between items
-                        child: CollectionCard(collection: collections[index]),
-                      ),
-                    ),
+              SizedBox(height: 24.h),
+
+              // Recent Bookmarks Section
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    "Recent Bookmarks",
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                   ),
-                ),
+                  GestureDetector(
+                    onTap: () {
+                      // Navigate to all bookmarks screen
+                    },
+                    child: Text("See All >"),
+                  )
+                ],
               ),
-              Text(
-                "Recent bookmark",
-                textAlign: TextAlign.start,
+              SizedBox(height: 12.h),
+              FutureBuilder<List<CustomPdfBookmark>>(
+                future: _recentBookmarksFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return Center(child: CircularProgressIndicator());
+                  } else if (snapshot.hasError) {
+                    return Text('Error loading bookmarks');
+                  } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                    return Text('No recent bookmarks');
+                  } else {
+                    return Column(
+                      children: snapshot.data!.map((bookmark) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: RecentBookmarkItem(
+                            title: bookmark.name,
+                            collection: bookmark.filePath.split('/').last,
+                            date: _formatDate(bookmark.createdAt),
+                            preview: bookmark.previewText ?? bookmark.notes ?? '',
+                            onTap: () {
+                              // Navigate to the PDF at the bookmarked page
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => FilePdfViewer(
+                                    file: File(bookmark.filePath),
+                                    initialPage: bookmark.pageNumber - 1,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        );
+                      }).toList(),
+                    );
+                  }
+                },
               ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final difference = now.difference(date);
+
+    if (difference.inDays == 0) {
+      return 'Today';
+    } else if (difference.inDays == 1) {
+      return 'Yesterday';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays} days ago';
+    } else {
+      return '${date.day}/${date.month}/${date.year}';
+    }
   }
 }

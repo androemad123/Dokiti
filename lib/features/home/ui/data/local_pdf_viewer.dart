@@ -5,12 +5,13 @@ import '../../../../core/abstract/document_viewer_state_base.dart';
 
 class FilePdfViewer extends BasePdfViewer {
   final File file;
+  final int? initialPage;
 
   const FilePdfViewer({
     Key? key,
     required this.file,
+    this.initialPage,
     String? title,
-    Map<int, String> initialComments = const {},
   }) : super(key: key, title: title);
 
   @override
@@ -32,5 +33,15 @@ class FilePdfViewer extends BasePdfViewer {
 }
 
 class _FilePdfViewerState extends BasePdfViewerState<FilePdfViewer> {
-  // Add any FilePdfViewer-specific state management here if needed
+  Future<Uint8List> getPdfBytes() async {
+    return widget.file.readAsBytes();
+  }
+
+  void onPdfLoaded() {
+    if (widget.initialPage != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        jumpToPage(widget.initialPage! - 1);
+      });
+    }
+  }
 }

@@ -1,3 +1,18 @@
+buildscript {
+    dependencies {
+        // Add this line for the Google Services plugin
+        classpath 'com.google.gms:google-services:4.4.1' // Use latest version
+        // Optionally add Firebase Crashlytics, Performance Monitoring, etc.
+        // classpath 'com.google.firebase:firebase-crashlytics-gradle:2.9.9'
+        // classpath 'com.google.firebase:perf-plugin:1.4.2'
+    }
+
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
 allprojects {
     repositories {
         google()
